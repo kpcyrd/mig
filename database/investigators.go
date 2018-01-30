@@ -44,6 +44,45 @@ func (db *DB) ActiveInvestigatorsPubKeys() (keys [][]byte, err error) {
 	return
 }
 
+// Returns all known investigators
+func (db *DB) Investigators() (invs []mig.Investigator, err error) {
+	rows, err := db.c.Query(`SELECT id, name, COALESCE(pgpfingerprint, ''),
+		COALESCE(publickey, ''), status, createdat, lastmodified, permissions,
+		CASE WHEN apikey IS NOT NULL THEN 'set' ELSE '' END
+		FROM investigators`)
+
+	if rows != nil {
+		defer rows.Close()
+	}
+	if err != nil && err != sql.ErrNoRows {
+		err = fmt.Errorf("Error while listing investigators: '%v'", err)
+		return
+	}
+	if err == sql.ErrNoRows { // having an empty DB is not an issue
+		return
+	}
+
+	for rows.Next() {
+		var inv mig.Investigator
+		var perm int64
+
+		err = rows.Scan(&inv.ID, &inv.Name, &inv.PGPFingerprint, &inv.PublicKey,
+			&inv.Status, &inv.CreatedAt, &inv.LastModified, &perm, &inv.APIKey)
+		if err != nil {
+			err = fmt.Errorf("Error while retrieving investigator: '%v'", err)
+			return
+		}
+		inv.Permissions.FromMask(perm)
+
+		invs = append(invs, inv)
+	}
+
+	if err := rows.Err(); err != nil {
+		err = fmt.Errorf("Failed to complete investigators query: '%v'", err)
+	}
+	return
+}
+
 // InvestigatorByID searches the database for an investigator with a given ID
 func (db *DB) InvestigatorByID(iid float64) (inv mig.Investigator, err error) {
 	var perm int64

@@ -33,15 +33,26 @@ func getInvestigator(respWriter http.ResponseWriter, request *http.Request) {
 		}
 		ctx.Channels.Log <- mig.Log{OpID: opid, Desc: "leaving getInvestigator()"}.Debug()
 	}()
-	iid, err := strconv.ParseFloat(request.URL.Query()["investigatorid"][0], 64)
-	if err != nil {
-		err = fmt.Errorf("Wrong parameters 'investigatorid': '%v'", err)
-		panic(err)
-	}
 
-	// retrieve the investigator
-	var inv mig.Investigator
-	if iid > 0 {
+	param := request.URL.Query()["investigatorid"]
+	if len(param) > 0 {
+		// get a specific investigator
+		iid, err := strconv.ParseFloat(param[0], 64)
+
+		if err != nil {
+			err = fmt.Errorf("Wrong parameters 'investigatorid': '%v'", err)
+			panic(err)
+		}
+
+		if iid <= 0 {
+			err = fmt.Errorf("Invalid Investigator ID '%.0f'", iid)
+			panic(err)
+		}
+
+		// retrieve the investigator
+		var inv mig.Investigator
+
+		// if no investigator found, return 404
 		inv, err = ctx.DB.InvestigatorByID(iid)
 		if err != nil {
 			if fmt.Sprintf("%v", err) == "Error while retrieving investigator: 'sql: no rows in result set'" {
@@ -55,20 +66,31 @@ func getInvestigator(respWriter http.ResponseWriter, request *http.Request) {
 				panic(err)
 			}
 		}
+
+		// store the results in the resource
+		investigatorItem, err := investigatorToItem(inv)
+		if err != nil {
+			panic(err)
+		}
+		resource.AddItem(investigatorItem)
 	} else {
-		// bad request, return 400
-		resource.SetError(cljs.Error{
-			Code:    fmt.Sprintf("%.0f", opid),
-			Message: fmt.Sprintf("Invalid Investigator ID '%.0f'", iid)})
-		respond(http.StatusBadRequest, resource, respWriter, request)
-		return
+		// get a list of all investigators
+		var investigators []mig.Investigator
+
+		investigators, err = ctx.DB.Investigators()
+		if err != nil {
+			panic(err)
+		}
+
+		for _, inv := range investigators {
+			investigatorItem, err := investigatorToItem(inv)
+			if err != nil {
+				panic(err)
+			}
+			resource.AddItem(investigatorItem)
+		}
 	}
-	// store the results in the resource
-	investigatorItem, err := investigatorToItem(inv)
-	if err != nil {
-		panic(err)
-	}
-	resource.AddItem(investigatorItem)
+
 	respond(http.StatusOK, resource, respWriter, request)
 }
 
